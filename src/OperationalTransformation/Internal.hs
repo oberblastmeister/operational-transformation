@@ -7,7 +7,7 @@ import Data.Sequence (Seq (Empty, (:<|), (:|>)))
 import Data.Text (Text)
 import qualified Data.Text as T
 import Lens.Micro
-import Lens.Micro.TH
+import Lens.Micro.TH (makeLenses)
 
 data Operation
   = Insert !Text
@@ -96,6 +96,9 @@ invert oldInput OperationSeq {_opSeq} = go oldInput _opSeq empty
         Insert t' -> go t ops $ addDelete (T.length t') osInverse
         Delete n -> go (T.drop n t) ops $ addInsert (T.take n t) osInverse
 
+-- | Composing two operation sequences gives a new sequence that preserves the changes of both.
+-- | For each input string S and a pair of consequtive sequences A and B
+-- | apply(apply(S, A), B) = apply(S, compose(A, B))
 compose :: OperationSeq -> OperationSeq -> OperationSeq
 compose OperationSeq {_lenAfter} OperationSeq {_len}
   | _len /= _lenAfter =
@@ -108,15 +111,58 @@ compose os1 os2 = go (os1 ^. opSeq) (os2 ^. opSeq) empty
   where
     go Empty Empty xs = xs
     go (Delete d :<| as) Empty xs = go as Empty (addDelete d xs)
-    go Empty (Insert i :<| bs) xs = go Empty bs (addInsert i xs)
+    go Empty (Insert t :<| bs) xs = go Empty bs (addInsert t xs)
     go aa@(a :<| as) bb@(b :<| bs) xs =
       case (a, b) of
+        -- these are the free cases
+        -- Why?
+        -- Because adding these directly to the OperationSequence will not affect other operations
+        -- Obviously we would not want to directly add Retains when we see them, as the point of them is to merge them with themselves or with Insert and Delete
+        -- But what about adding Insert and Delete on the opposite side?
+        -- What happens if we add Insert first on the left
+        -- For example with this pattern (Insert t, _)
+        -- When composing [Insert "hello"] [Retain 5], we will incorrectly get [Insert "hello", Retain 5]
+        -- because adding the Insert on the left affects the Retain, we would not want to add it
+        -- so we want to handle this case separately in a later pattern match
+        -- Similarly when composing [Insert "hello"] [Delete 5] we would expect to get []
+        -- because we have just deleted what we have inserted
+        -- Instead we get [Insert "hello", Delete 5], which is not what we want
+        -- With the pattern (_, Delete n) we have similar issues
+        -- When composing [Insert "hello"] [Delete 5] we would expect to get []
+        -- Instead we get [Insert "hello", Delete 5]
+        -- Thus, you can see that inserting stuff other than these exact operations on the correct side will lead to erroneous compositions
+        -- The rest of the cases in the compose function are for dealing with when we don't have these exact operations
+        -- In this exact order. Each case will have to be delt with manually by comparing how much is inserted, retained, or deleted
         (Delete n, _) -> go as bb (addDelete n xs)
-        (_, Insert n) -> go aa bs (addInsert n xs)
+        (_, Insert t) -> go aa bs (addInsert t xs)
+        --
+        -- (Insert t, _) -> go as bb (addInsert t xs)
+        -- (Insert t, _) -> go as bb (addInsert t xs)
+        -- (_, Delete n) -> go aa bs (addDelete n xs)
+        
+        -- Now here are the cases where we have to see both sides and decide how to compose them
+        -- When both are retain, we add the less one to the sequence
+        -- This is because retaining and then retaining again will not do anything for the overlapped part
+        -- For composing example, [Retain 4] [Retain 4] would give as [Retain 4]
+        -- This is the EQ case
+        -- This is why if they are not exactly the same, we add the lesser part to the set, because that is what they overlap on
+        -- [Retain 6] [Retain 4] would get Retain 4 added to the sequencce
+        -- [Retain 1] [Retain 2] would get one added to the sequence
+        -- These are the LT and GT cases
+        -- however we have to put the difference as the next peeker
+        -- Retain 2 and Retain 1 in the example above, respectively
+        -- We have to add them to the peeker and not directly to the set because they can merge with other operations.
+        -- For example composing [Retain 4, Insert "he"] and [Retain 6]
+        -- we can see that the intersecting retain of the first two elements is Retain 4
+        -- The extra Retain 2 will get added back to the peeker, and we get
+        -- [Insert "he"] [Retain 2] which will add the Insert to the sequence
         (Retain n, Retain m) -> case compare n m of
           LT -> go as (Retain (m - n) :<| bs) (addRetain n xs)
           EQ -> go as bs (addRetain n xs)
           GT -> go (Retain (n - m) :<| as) bs (addRetain n xs)
+          
+        
+        -- these are the cases when a retain is with a non retain operation
         (Retain n, Delete m) -> case compare n m of
           LT -> go as (Delete (m - n) :<| bs) (addDelete n xs)
           EQ -> go as bs (addDelete m xs)
@@ -127,11 +173,19 @@ compose os1 os2 = go (os1 ^. opSeq) (os2 ^. opSeq) empty
           GT ->
             let (before, after) = T.splitAt m t
              in go (Insert after :<| as) bs (addInsert before xs)
+
         (Insert t, Delete m) -> case compare (T.length t) m of
           LT -> go as (Delete (m - T.length t) :<| bs) xs
           EQ -> go as bs xs
           GT -> go (Insert (T.drop m t) :<| as) bs xs
-    go _ _ _ = error "unreachable"
+    go aa bb xs =
+      error $
+        "unreachable:\n"
+          ++ show aa
+          ++ "\n"
+          ++ show bb
+          ++ "\n"
+          ++ show xs
 
 transform :: OperationSeq -> OperationSeq -> OperationSeq
 transform = undefined

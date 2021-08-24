@@ -54,6 +54,9 @@ spec = parallel $ do
     checkApply [Insert "hello", Retain 5] " broh" "hello broh"
     checkApply [Delete 2, Insert "wow", Retain 1, Insert "yo"] "wow" "wowwyo"
     checkApply [Delete 2, Insert "yeahboi", Retain 2] "ah  " "yeahboi  "
+    checkApply [Insert "hello", Retain 5] "hello" "hellohello"
+    checkApply [Insert "broh", Delete 5] "hello" "broh"
+    
 
   it "invert" $ do
     checkInvert [Insert "hello"] [Delete 5] ""
@@ -61,9 +64,12 @@ spec = parallel $ do
     checkInvert [Retain 4] [Retain 4] "broh"
 
   it "compose" $ do
-    checkCompose [Insert "hello"] [Insert "another ", Retain 5] [Insert "another hello"] "" "another hello"
-    checkCompose [Delete 2, Retain 4] [Delete 3, Retain 1] [Delete 5, Retain 1] "we____" "_"
-    -- checkCompose [Delete 4, Insert "hello"]
+    -- cannot do inserts on the left first that will make the retain on right wrong
+    checkCompose [Retain 4, Insert "he"] [Retain 6] [Retain 4, Insert "he"] "____" "____he"
+    -- checkCompose [Insert "hello"] [Retain 5] [Insert "hello"] "" "hello"
+    -- checkCompose [Retain 2, Insert "hello"] [Insert "another ", Retain 7] [Insert "another ", Retain 2, Insert "hello"] "br" "another brhello"
+    -- checkCompose [Insert "hello"] [Insert "another ", Retain 5] [Insert "another hello"] "" "another hello"
+    -- checkCompose [Delete 2, Retain 4] [Delete 3, Retain 1] [Delete 5, Retain 1] "we____" "_"
     return @IO ()
 
   it "smoke" $ do
