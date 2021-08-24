@@ -74,26 +74,64 @@ apply :: Text -> OperationSeq -> Text
 apply input OperationSeq {_len}
   | T.length input /= _len =
     error $ "Text did not match baseLen of " ++ show _len
-apply input operations = go input operations ""
+apply input OperationSeq {_opSeq} = go input _opSeq ""
   where
-    go it OperationSeq {_opSeq = Empty} ot | T.null it = ot
-    go it os@OperationSeq {_opSeq = op :<| ops} ot =
-      let os' = os & opSeq .~ ops
-       in case op of
-            Retain n ->
-              let (before, after) = T.splitAt n it
-               in go after os' (ot <> before)
-            Insert t -> go it os' (ot <> t)
-            Delete n -> go (T.drop n it) os' ot
+    go it Empty ot | T.null it = ot
+    go it (op :<| ops) ot =
+      case op of
+        Retain n ->
+          let (before, after) = T.splitAt n it
+           in go after ops (ot <> before)
+        Insert t -> go it ops (ot <> t)
+        Delete n -> go (T.drop n it) ops ot
     go _ _ _ = error "unreachable"
 
 invert :: Text -> OperationSeq -> OperationSeq
-invert oldInput operationSeq = go oldInput operationSeq empty
+invert oldInput OperationSeq {_opSeq} = go oldInput _opSeq empty
   where
-    go _ OperationSeq {_opSeq = Empty} osInverse = osInverse
-    go t os@OperationSeq {_opSeq = op :<| ops} osInverse =
-      let os' = os & opSeq .~ ops
-       in case op of
-            Retain n -> go (T.drop n t) os' (addRetain n osInverse)
-            Insert t' -> go t os' $ addDelete (T.length t') osInverse
-            Delete n -> go (T.drop n t) os' $ addInsert (T.take n t) osInverse
+    go _ Empty osInverse = osInverse
+    go t (op :<| ops) osInverse =
+      case op of
+        Retain n -> go (T.drop n t) ops (addRetain n osInverse)
+        Insert t' -> go t ops $ addDelete (T.length t') osInverse
+        Delete n -> go (T.drop n t) ops $ addInsert (T.take n t) osInverse
+
+compose :: OperationSeq -> OperationSeq -> OperationSeq
+compose OperationSeq {_lenAfter} OperationSeq {_len}
+  | _len /= _lenAfter =
+    error $
+      "The lenAfter of the first was not equal to len of second: "
+        ++ show _lenAfter
+        ++ " "
+        ++ show _len
+compose os1 os2 = go (os1 ^. opSeq) (os2 ^. opSeq) empty
+  where
+    go Empty Empty xs = xs
+    go (Delete d :<| as) Empty xs = go as Empty (addDelete d xs)
+    go Empty (Insert i :<| bs) xs = go Empty bs (addInsert i xs)
+    go aa@(a :<| as) bb@(b :<| bs) xs =
+      case (a, b) of
+        (Delete n, _) -> go as bb (addDelete n xs)
+        (_, Insert n) -> go aa bs (addInsert n xs)
+        (Retain n, Retain m) -> case compare n m of
+          LT -> go as (Retain (m - n) :<| bs) (addRetain n xs)
+          EQ -> go as bs (addRetain n xs)
+          GT -> go (Retain (n - m) :<| as) bs (addRetain n xs)
+        (Retain n, Delete m) -> case compare n m of
+          LT -> go as (Delete (m - n) :<| bs) (addDelete n xs)
+          EQ -> go as bs (addDelete m xs)
+          GT -> go (Retain (n - m) :<| as) bs (addDelete m xs)
+        (Insert t, Retain m) -> case compare (T.length t) m of
+          LT -> go as (Retain (m - T.length t) :<| bs) (addInsert t xs)
+          EQ -> go as bs (addInsert t xs)
+          GT ->
+            let (before, after) = T.splitAt m t
+             in go (Insert after :<| as) bs (addInsert before xs)
+        (Insert t, Delete m) -> case compare (T.length t) m of
+          LT -> go as (Delete (m - T.length t) :<| bs) xs
+          EQ -> go as bs xs
+          GT -> go (Insert (T.drop m t) :<| as) bs xs
+    go _ _ _ = error "unreachable"
+
+transform :: OperationSeq -> OperationSeq -> OperationSeq
+transform = undefined

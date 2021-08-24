@@ -9,6 +9,8 @@ module OperationalTransformation
     addRetain,
     apply,
     invert,
+    compose,
+    transform,
   )
 where
 

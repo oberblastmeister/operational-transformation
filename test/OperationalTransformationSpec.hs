@@ -1,10 +1,8 @@
 module OperationalTransformationSpec (spec) where
 
 import Data.Text
-import GHC.Stack.Types (HasCallStack)
 import OperationalTransformation.Internal
 import Test.Hspec
-import Test.Hspec.QuickCheck
 
 fromLeft' :: Either a b -> a
 fromLeft' (Left a) = a
@@ -15,7 +13,7 @@ fromRight' (Right b) = b
 fromRight' (Left a) = error $ "got left: " ++ show a
 
 checkApply :: HasCallStack => [Operation] -> Text -> Text -> Expectation
-checkApply ops before after = apply before os `shouldBe` after
+checkApply ops t t' = apply t os `shouldBe` t'
   where
     os = fromList ops
 
@@ -31,6 +29,16 @@ checkInvert ops ops' t = do
   apply (apply t ops'') ops''' `shouldBe` t
   return ()
 
+checkCompose :: HasCallStack => [Operation] -> [Operation] -> [Operation] -> Text -> Text -> Expectation
+checkCompose ops ops' expectedComposed t t' = do
+  let ops'' = fromList ops
+  let ops''' = fromList ops'
+  let composed = compose ops'' ops'''
+  let expectedComposed' = fromList expectedComposed
+  composed `shouldBe` expectedComposed'
+  apply (apply t ops'') ops''' `shouldBe` apply t composed
+  apply t composed `shouldBe` t'
+
 spec :: Spec
 spec = parallel $ do
   it "normalize" $ do
@@ -45,12 +53,18 @@ spec = parallel $ do
   it "apply" $ do
     checkApply [Insert "hello", Retain 5] " broh" "hello broh"
     checkApply [Delete 2, Insert "wow", Retain 1, Insert "yo"] "wow" "wowwyo"
+    checkApply [Delete 2, Insert "yeahboi", Retain 2] "ah  " "yeahboi  "
 
   it "invert" $ do
     checkInvert [Insert "hello"] [Delete 5] ""
-    return @IO ()
     checkInvert [Delete 3, Retain 4, Delete 2] [Insert "wow", Retain 4, Insert "ye"] "wow    ye"
     checkInvert [Retain 4] [Retain 4] "broh"
+
+  it "compose" $ do
+    checkCompose [Insert "hello"] [Insert "another ", Retain 5] [Insert "another hello"] "" "another hello"
+    checkCompose [Delete 2, Retain 4] [Delete 3, Retain 1] [Delete 5, Retain 1] "we____" "_"
+    -- checkCompose [Delete 4, Insert "hello"]
+    return @IO ()
 
   it "smoke" $ do
     return @IO ()
