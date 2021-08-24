@@ -2,12 +2,16 @@
 
 module OperationalTransformation.Internal where
 
+import Data.Change
 import Data.Foldable (foldl')
+import Data.Range (Range (..))
+import qualified Data.Range as Range
 import Data.Sequence (Seq (Empty, (:<|), (:|>)))
 import Data.Text (Text)
 import qualified Data.Text as T
 import Lens.Micro
 import Lens.Micro.TH (makeLenses)
+import Prelude hiding (last)
 
 -- | The core operation that we use
 data Operation
@@ -29,6 +33,18 @@ makeLenses ''OperationSeq
 
 fromList :: [Operation] -> OperationSeq
 fromList = foldl' (flip add) empty
+
+fromChanges :: Text -> [Change] -> OperationSeq
+fromChanges t changes = go changes 0 empty
+  where
+    go [] last os = addRetain (T.length t - last) os
+    go (Change r@(RangeV start end) t' : cs) last os =
+      let l = Range.length r
+          os' = addRetain (start - last) os
+       in go cs end $
+            if T.null t'
+              then addDelete l os'
+              else addDelete l $ addInsert t' os'
 
 empty :: OperationSeq
 empty = OperationSeq {_opSeq = Empty, _len = 0, _lenAfter = 0}

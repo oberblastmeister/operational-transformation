@@ -25,6 +25,8 @@ source-repository head
 
 library
   exposed-modules:
+      Data.Change
+      Data.Range
       OperationalTransformation
       OperationalTransformation.Internal
   other-modules:
@@ -45,6 +47,7 @@ library
       OverloadedStrings
       ScopedTypeVariables
       RankNTypes
+      PatternSynonyms
   ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints
   build-depends:
       base >=4.7 && <5
@@ -76,6 +79,7 @@ test-suite operational-transformation-test
       OverloadedStrings
       ScopedTypeVariables
       RankNTypes
+      PatternSynonyms
   ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       QuickCheck

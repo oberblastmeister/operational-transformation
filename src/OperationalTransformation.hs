@@ -11,6 +11,7 @@ module OperationalTransformation
     invert,
     compose,
     transform,
+    fromChanges,
   )
 where
 
