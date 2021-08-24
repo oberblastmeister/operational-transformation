@@ -8,6 +8,7 @@ module OperationalTransformation
     addInsert,
     addRetain,
     apply,
+    invert,
   )
 where
 

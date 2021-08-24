@@ -70,26 +70,30 @@ addDelete n os =
         xs -> xs :|> Delete n
     & len +~ n
 
-apply :: Text -> OperationSeq -> Either String Text
+apply :: Text -> OperationSeq -> Text
 apply input OperationSeq {_len}
   | T.length input /= _len =
-    Left $ "Text did not match baseLen of " ++ show _len
+    error $ "Text did not match baseLen of " ++ show _len
 apply input operations = go input operations ""
   where
-    go it OperationSeq {_opSeq = Empty} ot | T.null it = Right ot
+    go it OperationSeq {_opSeq = Empty} ot | T.null it = ot
     go it os@OperationSeq {_opSeq = op :<| ops} ot =
       let os' = os & opSeq .~ ops
        in case op of
             Retain n ->
               let (before, after) = T.splitAt n it
                in go after os' (ot <> before)
-            Insert t ->
-              go it os' (ot <> t)
-            Delete n ->
-              go (T.drop n it) os' ot
+            Insert t -> go it os' (ot <> t)
+            Delete n -> go (T.drop n it) os' ot
     go _ _ _ = error "unreachable"
-    
--- invert :: Text -> OperationSeq -> OperationSeq
--- invert t os = undefined 
---   where
---     go  t jk cjk c= undefined
+
+invert :: Text -> OperationSeq -> OperationSeq
+invert oldInput operationSeq = go oldInput operationSeq empty
+  where
+    go _ OperationSeq {_opSeq = Empty} osInverse = osInverse
+    go t os@OperationSeq {_opSeq = op :<| ops} osInverse =
+      let os' = os & opSeq .~ ops
+       in case op of
+            Retain n -> go (T.drop n t) os' (addRetain n osInverse)
+            Insert t' -> go t os' $ addDelete (T.length t') osInverse
+            Delete n -> go (T.drop n t) os' $ addInsert (T.take n t) osInverse
