@@ -9,12 +9,15 @@ import qualified Data.Text as T
 import Lens.Micro
 import Lens.Micro.TH (makeLenses)
 
+-- | The core operation that we use
 data Operation
   = Insert !Text
   | Delete !Int
   | Retain !Int
   deriving (Show, Eq)
 
+-- | A sequence of operations
+-- | Adding operations to the sequence will potentially merge Operations for optimization purposes
 data OperationSeq = OperationSeq
   { _opSeq :: !(Seq Operation),
     _len :: !Int,
@@ -117,7 +120,7 @@ compose os1 os2 = go (os1 ^. opSeq) (os2 ^. opSeq) empty
         -- these are the free cases
         -- Why?
         -- Because adding these directly to the OperationSequence will not affect other operations
-        -- Obviously we would not want to directly add Retains when we see them, as the point of them is to merge them with themselves or with Insert and Delete
+        -- Obviously we would not want to directly add Retains when we see them, as the point of them is to merge Retains
         -- But what about adding Insert and Delete on the opposite side?
         -- What happens if we add Insert first on the left
         -- For example with this pattern (Insert t, _)
@@ -139,7 +142,7 @@ compose os1 os2 = go (os1 ^. opSeq) (os2 ^. opSeq) empty
         -- (Insert t, _) -> go as bb (addInsert t xs)
         -- (Insert t, _) -> go as bb (addInsert t xs)
         -- (_, Delete n) -> go aa bs (addDelete n xs)
-        
+
         -- Now here are the cases where we have to see both sides and decide how to compose them
         -- When both are retain, we add the less one to the sequence
         -- This is because retaining and then retaining again will not do anything for the overlapped part
@@ -160,8 +163,6 @@ compose os1 os2 = go (os1 ^. opSeq) (os2 ^. opSeq) empty
           LT -> go as (Retain (m - n) :<| bs) (addRetain n xs)
           EQ -> go as bs (addRetain n xs)
           GT -> go (Retain (n - m) :<| as) bs (addRetain n xs)
-          
-        
         -- these are the cases when a retain is with a non retain operation
         (Retain n, Delete m) -> case compare n m of
           LT -> go as (Delete (m - n) :<| bs) (addDelete n xs)
@@ -173,7 +174,6 @@ compose os1 os2 = go (os1 ^. opSeq) (os2 ^. opSeq) empty
           GT ->
             let (before, after) = T.splitAt m t
              in go (Insert after :<| as) bs (addInsert before xs)
-
         (Insert t, Delete m) -> case compare (T.length t) m of
           LT -> go as (Delete (m - T.length t) :<| bs) xs
           EQ -> go as bs xs
@@ -187,5 +187,29 @@ compose os1 os2 = go (os1 ^. opSeq) (os2 ^. opSeq) empty
           ++ "\n"
           ++ show xs
 
-transform :: OperationSeq -> OperationSeq -> OperationSeq
-transform = undefined
+transform :: OperationSeq -> OperationSeq -> (OperationSeq, OperationSeq)
+transform os1 os2 = go (os1 ^. opSeq) (os2 ^. opSeq) empty empty
+  where
+    go Empty Empty xs ys = (xs, ys)
+    go (Insert t :<| as) Empty xs ys = go as Empty (addRetain (T.length t) xs) (addInsert t ys)
+    go Empty (Insert t :<| bs) xs ys = go Empty bs (addInsert t xs) (addRetain (T.length t) ys)
+    go aa@(a :<| as) bb@(b :<| bs) xs ys = case (a, b) of
+      (Insert t, _) -> go as bb (addInsert t xs) (addRetain (T.length t) ys)
+      (_, Insert t) -> go aa bs (addRetain (T.length t) xs) (addInsert t ys)
+      (Retain n, Retain m) -> case compare n m of
+        LT -> go as (Retain (m - n) :<| bs) (addRetain n xs) (addRetain n ys)
+        EQ -> go as bs (addRetain n xs) (addRetain n ys)
+        GT -> go (Retain (n - m) :<| as) bs (addRetain m xs) (addRetain m ys)
+      (Delete n, Delete m) -> case compare n m of
+        LT -> go as (Delete (m - n) :<| bs) xs ys
+        EQ -> go as bs xs ys
+        GT -> go (Delete (n - m) :<| as) bs xs ys
+      (Retain n, Delete m) -> case compare n m of
+        LT -> go as (Delete (m - n) :<| bs) xs (addDelete n ys)
+        EQ -> go as bs xs (addDelete m ys)
+        GT -> go (Delete (n - m) :<| as) bs (addDelete m xs) ys
+      (Delete n, Retain m) -> case compare n m of
+        LT -> go as (Delete (m - n) :<| bs) (addDelete n xs) ys
+        EQ -> go as bs (addDelete n xs) ys
+        GT -> go (Delete (n - m) :<| as) bs (addDelete m xs) ys
+    go _ _ _ _ = error "unreachable"
