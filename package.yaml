@@ -44,7 +44,6 @@ default-extensions:
 
 ghc-options:
   - -Wall
-  - -Wcompat
   - -Wincomplete-record-updates
   - -Wincomplete-uni-patterns
   - -Wredundant-constraints

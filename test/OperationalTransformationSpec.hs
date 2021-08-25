@@ -1,12 +1,14 @@
 module OperationalTransformationSpec (spec) where
 
+import Control.Arrow (Arrow, (***))
 import Data.Change
 import Data.Range
 import Data.Text
 import OperationalTransformation.Internal
 import Test.Hspec
-import Test.Hspec (describe)
-import Data.Either.Combinators
+
+both :: Arrow a => a b' c' -> a (b', b') (c', c')
+both f = f *** f
 
 checkApply :: HasCallStack => [Operation] -> Text -> Text -> Expectation
 checkApply ops t t' = apply' t os `shouldBe` t'
@@ -34,6 +36,19 @@ checkCompose ops ops' expectedComposed t t' = do
   composed `shouldBe` expectedComposed'
   apply' (apply' t ops'') ops''' `shouldBe` apply' t composed
   apply' t composed `shouldBe` t'
+
+checkTransform :: HasCallStack => [Operation] -> [Operation] -> ([Operation], [Operation]) -> Text -> Text -> Expectation
+checkTransform ops ops' expectedTransformed t t' = do
+  let a = fromList ops
+  let b = fromList ops'
+  let transformed@(a', b') = transform a b
+  let expectedTransformed' = both fromList expectedTransformed
+  transformed `shouldBe` expectedTransformed'
+  let aFinal = a `compose` b'
+  let bFinal = b `compose` a'
+  aFinal `shouldBe` bFinal
+  apply' t aFinal `shouldBe` apply' t bFinal
+  apply' t aFinal `shouldBe` t'
 
 checkFromChanges :: HasCallStack => Text -> [Change] -> [Operation] -> Expectation
 checkFromChanges t cs ops = do
@@ -66,12 +81,36 @@ spec = parallel $ do
 
   it "compose" $ do
     -- cannot do inserts on the left first that will make the retain on right wrong
-    checkCompose [Retain 4, Insert "he"] [Retain 6] [Retain 4, Insert "he"] "____" "____he"
-    checkCompose [Insert "hello"] [Retain 5] [Insert "hello"] "" "hello"
-    checkCompose [Retain 2, Insert "hello"] [Insert "another ", Retain 7] [Insert "another ", Retain 2, Insert "hello"] "br" "another brhello"
-    checkCompose [Insert "hello"] [Insert "another ", Retain 5] [Insert "another hello"] "" "another hello"
-    checkCompose [Delete 2, Retain 4] [Delete 3, Retain 1] [Delete 5, Retain 1] "we____" "_"
-    return @IO ()
+    checkCompose
+      [Retain 4, Insert "he"]
+      [Retain 6]
+      [Retain 4, Insert "he"]
+      "____"
+      "____he"
+    checkCompose
+      [Insert "hello"]
+      [Retain 5]
+      [Insert "hello"]
+      ""
+      "hello"
+    checkCompose
+      [Retain 2, Insert "hello"]
+      [Insert "another ", Retain 7]
+      [Insert "another ", Retain 2, Insert "hello"]
+      "br"
+      "another brhello"
+    checkCompose
+      [Insert "hello"]
+      [Insert "another ", Retain 5]
+      [Insert "another hello"]
+      ""
+      "another hello"
+    checkCompose
+      [Delete 2, Retain 4]
+      [Delete 3, Retain 1]
+      [Delete 5, Retain 1]
+      "we____"
+      "_"
 
   describe "from changes" $ do
     it "it should delete from middle" $ do
@@ -87,7 +126,31 @@ spec = parallel $ do
       checkFromChanges "asdf" [Change (range 0 2) "broh"] [Insert "broh", Delete 2, Retain 2]
 
   it "transform" $ do
-    return @IO ()
+    -- the simple case
+    checkTransform
+      [Insert "hi"]
+      [Insert "broh"]
+      ( [Insert "hi", Retain 4],
+        [Retain 2, Insert "broh"]
+      )
+      ""
+      "hibroh"
+    checkTransform
+      [Retain 4]
+      [Delete 2, Retain 2]
+      ( [Retain 2],
+        [Delete 2, Retain 2]
+      )
+      "broh"
+      "oh"
+    checkTransform
+      [Retain 2, Insert "asdf", Delete 2]
+      [Delete 1, Retain 1, Insert "ha", Retain 2]
+      ( [Retain 1, Insert "asdf", Retain 2, Delete 2],
+        [Delete 1, Retain 1, Retain 4, Insert "ha"]
+      )
+      "ha__"
+      "aasdfha"
 
   it "smoke" $ do
     return @IO ()

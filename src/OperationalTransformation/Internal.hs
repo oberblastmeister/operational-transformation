@@ -2,7 +2,6 @@
 
 module OperationalTransformation.Internal where
 
-import Control.Monad
 import Data.Change
 import Data.Either.Combinators
 import Data.Foldable (foldl')
@@ -13,7 +12,6 @@ import qualified Data.Range as Range
 import Data.Sequence (Seq (Empty, (:<|), (:|>)))
 import Data.Text (Text)
 import qualified Data.Text as T
-import Debug.Trace
 import Lens.Micro
 import Lens.Micro.TH (makeLenses)
 import Prelude hiding (last)
@@ -252,12 +250,20 @@ compose os1 os2 = go (os1 ^. opSeq) (os2 ^. opSeq) empty
           ++ show xs
 
 transform :: OperationSeq -> OperationSeq -> (OperationSeq, OperationSeq)
+transform os1 os2
+  | os1 ^. len /= os2 ^. len =
+    error $
+      "The len of the first was not equal to len of second: "
+        ++ show (os1 ^. len)
+        ++ show (os2 ^. len)
 transform os1 os2 = go (os1 ^. opSeq) (os2 ^. opSeq) empty empty
   where
     go Empty Empty xs ys = (xs, ys)
-    go (Insert t :<| as) Empty xs ys = go as Empty (addRetain (T.length t) xs) (addInsert t ys)
-    go Empty (Insert t :<| bs) xs ys = go Empty bs (addInsert t xs) (addRetain (T.length t) ys)
+    -- no compare cases, when the other is empty
+    go (Insert t :<| as) Empty xs ys = go as Empty (addInsert t xs) (addRetain (T.length t) ys)
+    go Empty (Insert t :<| bs) xs ys = go Empty bs (addRetain (T.length t) xs) (addInsert t ys)
     go aa@(a :<| as) bb@(b :<| bs) xs ys = case (a, b) of
+      -- no compare cases
       (Insert t, _) -> go as bb (addInsert t xs) (addRetain (T.length t) ys)
       (_, Insert t) -> go aa bs (addRetain (T.length t) xs) (addInsert t ys)
       (Retain n, Retain m) -> case compare n m of
@@ -271,9 +277,9 @@ transform os1 os2 = go (os1 ^. opSeq) (os2 ^. opSeq) empty empty
       (Retain n, Delete m) -> case compare n m of
         LT -> go as (Delete (m - n) :<| bs) xs (addDelete n ys)
         EQ -> go as bs xs (addDelete m ys)
-        GT -> go (Delete (n - m) :<| as) bs (addDelete m xs) ys
+        GT -> go (Retain (n - m) :<| as) bs xs (addDelete m ys)
       (Delete n, Retain m) -> case compare n m of
-        LT -> go as (Delete (m - n) :<| bs) (addDelete n xs) ys
+        LT -> go as (Retain (m - n) :<| bs) (addDelete n xs) ys
         EQ -> go as bs (addDelete n xs) ys
         GT -> go (Delete (n - m) :<| as) bs (addDelete m xs) ys
     go _ _ _ _ = error "unreachable"
