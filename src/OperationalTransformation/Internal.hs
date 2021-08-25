@@ -2,13 +2,18 @@
 
 module OperationalTransformation.Internal where
 
+import Control.Monad
 import Data.Change
+import Data.Either.Combinators
 import Data.Foldable (foldl')
+import qualified Data.List as L
+import Data.Maybe (fromJust)
 import Data.Range (Range (..))
 import qualified Data.Range as Range
 import Data.Sequence (Seq (Empty, (:<|), (:|>)))
 import Data.Text (Text)
 import qualified Data.Text as T
+import Debug.Trace
 import Lens.Micro
 import Lens.Micro.TH (makeLenses)
 import Prelude hiding (last)
@@ -18,6 +23,11 @@ data Operation
   = Insert !Text
   | Delete !Int
   | Retain !Int
+  deriving (Show, Eq)
+
+data SpannedOperation
+  = SpannedInsert !Int !Text
+  | SpannedDelete !Range
   deriving (Show, Eq)
 
 -- | A sequence of operations
@@ -34,8 +44,28 @@ makeLenses ''OperationSeq
 fromList :: [Operation] -> OperationSeq
 fromList = foldl' (flip add) empty
 
-fromChanges :: Text -> [Change] -> OperationSeq
-fromChanges t changes = go changes 0 empty
+fromChanges :: Text -> [Change] -> Maybe OperationSeq
+fromChanges t changes =
+  if disjoint
+    then Just $ fromChangesUnchecked t changesSorted
+    else Nothing
+  where
+    changesSorted = L.sort changes
+
+    disjoint =
+      zip
+        changesSorted
+        (drop 1 changesSorted)
+        & all
+          ( \(Change (RangeV _ end) _, Change (RangeV start _) _) ->
+              end <= start
+          )
+
+fromChanges' :: Text -> [Change] -> OperationSeq
+fromChanges' t = fromJust <$> fromChanges t
+
+fromChangesUnchecked :: Text -> [Change] -> OperationSeq
+fromChangesUnchecked t changes = go changes 0 empty
   where
     go [] last os = addRetain (T.length t - last) os
     go (Change r@(RangeV start end) t' : cs) last os =
@@ -72,9 +102,13 @@ addInsert t os =
   os
     & opSeq
       %~ \case
+        -- don't create to operations when they are already at the end, merge them
         xs :|> Insert t' -> xs :|> Insert (t' <> t)
+        -- make sure inserts always go before deletes if they are directly consecutive
+        -- also optimize if there is an insert already before delete
         xs :|> Insert t' :|> del@(Delete _) -> xs :|> Insert (t' <> t) :|> del
         xs :|> del@(Delete _) -> xs :|> Insert t :|> del
+        -- finally add to the back if there are no optimizations
         xs -> xs :|> Insert t
     & lenAfter
     +~ T.length t
@@ -89,11 +123,22 @@ addDelete n os =
         xs -> xs :|> Delete n
     & len +~ n
 
-apply :: Text -> OperationSeq -> Text
+data ApplyError
+  = TextLenMismatch Int Int
+
+instance Show ApplyError where
+  show (TextLenMismatch tl l) =
+    show $
+      "Text length "
+        ++ show tl
+        ++ " did not match expected length "
+        ++ show l
+        ++ " of operation"
+
+apply :: Text -> OperationSeq -> Either ApplyError Text
 apply input OperationSeq {_len}
-  | T.length input /= _len =
-    error $ "Text did not match baseLen of " ++ show _len
-apply input OperationSeq {_opSeq} = go input _opSeq ""
+  | T.length input /= _len = Left $ TextLenMismatch (T.length input) _len
+apply input OperationSeq {_opSeq} = Right $ go input _opSeq ""
   where
     go it Empty ot | T.null it = ot
     go it (op :<| ops) ot =
@@ -104,6 +149,9 @@ apply input OperationSeq {_opSeq} = go input _opSeq ""
         Insert t -> go it ops (ot <> t)
         Delete n -> go (T.drop n it) ops ot
     go _ _ _ = error "unreachable"
+
+apply' :: Text -> OperationSeq -> Text
+apply' t = fromRight' <$> apply t
 
 invert :: Text -> OperationSeq -> OperationSeq
 invert oldInput OperationSeq {_opSeq} = go oldInput _opSeq empty

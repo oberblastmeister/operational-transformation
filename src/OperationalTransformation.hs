@@ -8,10 +8,13 @@ module OperationalTransformation
     addInsert,
     addRetain,
     apply,
+    apply',
     invert,
     compose,
     transform,
     fromChanges,
+    fromChanges',
+    fromChangesUnchecked,
   )
 where
 

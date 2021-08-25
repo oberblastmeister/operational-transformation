@@ -6,17 +6,10 @@ import Data.Text
 import OperationalTransformation.Internal
 import Test.Hspec
 import Test.Hspec (describe)
-
-fromLeft' :: Either a b -> a
-fromLeft' (Left a) = a
-fromLeft' (Right b) = error "got right"
-
-fromRight' :: Show a => Either a b -> b
-fromRight' (Right b) = b
-fromRight' (Left a) = error $ "got left: " ++ show a
+import Data.Either.Combinators
 
 checkApply :: HasCallStack => [Operation] -> Text -> Text -> Expectation
-checkApply ops t t' = apply t os `shouldBe` t'
+checkApply ops t t' = apply' t os `shouldBe` t'
   where
     os = fromList ops
 
@@ -29,7 +22,7 @@ checkInvert ops ops' t = do
   let ops''' = fromList ops'
   let inverted = invert t ops''
   inverted `shouldBe` ops'''
-  apply (apply t ops'') ops''' `shouldBe` t
+  apply' (apply' t ops'') ops''' `shouldBe` t
   return ()
 
 checkCompose :: HasCallStack => [Operation] -> [Operation] -> [Operation] -> Text -> Text -> Expectation
@@ -39,13 +32,13 @@ checkCompose ops ops' expectedComposed t t' = do
   let composed = compose ops'' ops'''
   let expectedComposed' = fromList expectedComposed
   composed `shouldBe` expectedComposed'
-  apply (apply t ops'') ops''' `shouldBe` apply t composed
-  apply t composed `shouldBe` t'
+  apply' (apply' t ops'') ops''' `shouldBe` apply' t composed
+  apply' t composed `shouldBe` t'
 
 checkFromChanges :: HasCallStack => Text -> [Change] -> [Operation] -> Expectation
 checkFromChanges t cs ops = do
   let os = fromList ops
-  fromChanges t cs `shouldBe` os
+  fromChanges' t cs `shouldBe` os
 
 spec :: Spec
 spec = parallel $ do

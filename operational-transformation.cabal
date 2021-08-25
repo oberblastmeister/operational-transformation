@@ -26,6 +26,7 @@ source-repository head
 library
   exposed-modules:
       Data.Change
+      Data.Either.Combinators
       Data.Range
       OperationalTransformation
       OperationalTransformation.Internal
