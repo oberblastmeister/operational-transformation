@@ -95,7 +95,7 @@ addRetain n os =
     & lenAfter +~ n
 
 addInsert :: Text -> OperationSeq -> OperationSeq
-addInsert t os | T.null t = os
+addInsert "" os = os
 addInsert t os =
   os
     & opSeq
@@ -138,7 +138,8 @@ apply input OperationSeq {_len}
   | T.length input /= _len = Left $ TextLenMismatch (T.length input) _len
 apply input OperationSeq {_opSeq} = Right $ go input _opSeq ""
   where
-    go it Empty ot | T.null it = ot
+    go "" Empty ot = ot
+    go _ Empty _ = error "unreachable"
     go it (op :<| ops) ot =
       case op of
         Retain n ->
@@ -146,7 +147,6 @@ apply input OperationSeq {_opSeq} = Right $ go input _opSeq ""
            in go after ops (ot <> before)
         Insert t -> go it ops (ot <> t)
         Delete n -> go (T.drop n it) ops ot
-    go _ _ _ = error "unreachable"
 
 apply' :: Text -> OperationSeq -> Text
 apply' t = fromRight' <$> apply t
@@ -177,6 +177,8 @@ compose os1 os2 = go (os1 ^. opSeq) (os2 ^. opSeq) empty
     go Empty Empty xs = xs
     go (Delete d :<| as) Empty xs = go as Empty (addDelete d xs)
     go Empty (Insert t :<| bs) xs = go Empty bs (addInsert t xs)
+    go (_ :<| _) Empty _ = unreachable
+    go Empty (_ :<| _) _ = unreachable
     go aa@(a :<| as) bb@(b :<| bs) xs =
       case (a, b) of
         -- these are the free cases
@@ -240,14 +242,6 @@ compose os1 os2 = go (os1 ^. opSeq) (os2 ^. opSeq) empty
           LT -> go as (Delete (m - T.length t) :<| bs) xs
           EQ -> go as bs xs
           GT -> go (Insert (T.drop m t) :<| as) bs xs
-    go aa bb xs =
-      error $
-        "unreachable:\n"
-          ++ show aa
-          ++ "\n"
-          ++ show bb
-          ++ "\n"
-          ++ show xs
 
 transform :: OperationSeq -> OperationSeq -> (OperationSeq, OperationSeq)
 transform os1 os2
@@ -262,6 +256,8 @@ transform os1 os2 = go (os1 ^. opSeq) (os2 ^. opSeq) empty empty
     -- no compare cases, when the other is empty
     go (Insert t :<| as) Empty xs ys = go as Empty (addInsert t xs) (addRetain (T.length t) ys)
     go Empty (Insert t :<| bs) xs ys = go Empty bs (addRetain (T.length t) xs) (addInsert t ys)
+    go (_ :<| _) Empty _ _ = unreachable
+    go Empty (_ :<| _) _ _ = unreachable
     go aa@(a :<| as) bb@(b :<| bs) xs ys = case (a, b) of
       -- no compare cases
       (Insert t, _) -> go as bb (addInsert t xs) (addRetain (T.length t) ys)
@@ -282,4 +278,6 @@ transform os1 os2 = go (os1 ^. opSeq) (os2 ^. opSeq) empty empty
         LT -> go as (Retain (m - n) :<| bs) (addDelete n xs) ys
         EQ -> go as bs (addDelete n xs) ys
         GT -> go (Delete (n - m) :<| as) bs (addDelete m xs) ys
-    go _ _ _ _ = error "unreachable"
+        
+unreachable :: a
+unreachable = error "unreachable"

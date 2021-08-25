@@ -64,3 +64,4 @@ tests:
       - hspec
       - QuickCheck
       - quickcheck-instances
+      - random

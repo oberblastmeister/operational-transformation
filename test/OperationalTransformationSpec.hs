@@ -5,6 +5,7 @@ import Data.Change
 import Data.Range
 import Data.Text
 import OperationalTransformation.Internal
+import System.Random (StdGen)
 import Test.Hspec
 
 both :: Arrow a => a b' c' -> a (b', b') (c', c')
@@ -54,6 +55,17 @@ checkFromChanges :: HasCallStack => Text -> [Change] -> [Operation] -> Expectati
 checkFromChanges t cs ops = do
   let os = fromList ops
   fromChanges' t cs `shouldBe` os
+
+-- genOperationSeq :: StdGen -> Text -> OperationSeq
+-- genOperationSeq gen t = undefined
+--   where
+--     go "" os = os
+--     go t os = do
+--       let i = if T.length t == 1
+--         then 1
+--         else
+--           1 + (Random.uniformR (0, ))
+--     go = undefined
 
 spec :: Spec
 spec = parallel $ do
